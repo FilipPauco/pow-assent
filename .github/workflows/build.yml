@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_call:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    name: Linter
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v3
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: 26.0
+          elixir-version: 1.16.0
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - run: mix credo --strict --ignore design.tagtodo,readability.maxlinelength
+
+  test:
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pow_assent_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    strategy:
+      matrix:
+        version:
+          - otp: 26.0
+            elixir: 1.16.0
+            os: ubuntu-latest
+          - otp: 22.0
+            elixir: 1.12.0
+            # It's necessary to run on ubunto 20.04 for OTP 20 - 25
+            # See https://github.com/erlef/setup-beam
+            os: ubuntu-20.04       
+    runs-on: ${{ matrix.version.os }}
+    name: OTP ${{matrix.version.otp}} / Elixir ${{matrix.version.elixir}}
+    env:
+      MIX_ENV: test
+      POSTGRES_URL: ecto://postgres:postgres@localhost/pow_assent_test
+    steps:
+      - uses: actions/checkout@v3
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{matrix.version.otp}}
+          elixir-version: ${{matrix.version.elixir}}
+      - run: mix deps.get mix compile --warnings-as-errors
+      - run: mix test
